@@ -334,7 +334,7 @@ Write-Host "[7/10] Configuring scan settings..." -ForegroundColor Green
 $scanParams = @{
     ScanParameters                                  = 2                      # Full scan for scheduled
     ScanScheduleDay                                 = 0                      # Every day
-    ScanScheduleQuickScanTime                       = 720                    # Quick scan at noon
+    ScanScheduleQuickScanTime                       = (New-TimeSpan -Hours 12)  # Quick scan at noon
     CheckForSignaturesBeforeRunningScan              = $true
     ScanOnlyIfIdleEnabled                           = $false                 # Scan even if in use
     DisableArchiveScanning                          = $false
@@ -492,8 +492,9 @@ Write-Host "  - Exploit Protection mitigations (DEP, ASLR, SEHOP, CFG)" -Foregro
 Write-Host ""
 
 Write-Host "NEXT STEPS:" -ForegroundColor Yellow
-Write-Host "  1. Enable Tamper Protection manually: Windows Security > Virus & threat protection > Manage settings" -ForegroundColor White
-Write-Host "  2. Monitor for false positives - whitelist legitimate apps as needed:" -ForegroundColor White
+Write-Host "  1. REBOOT to activate exploit protection changes (SEHOP, CFG, DEP)" -ForegroundColor White
+Write-Host "  2. Enable Tamper Protection manually: Windows Security > Virus & threat protection > Manage settings" -ForegroundColor White
+Write-Host "  3. Monitor for false positives - whitelist legitimate apps as needed:" -ForegroundColor White
 Write-Host "     Add-MpPreference -ControlledFolderAccessAllowedApplications 'C:\path\to\app.exe'" -ForegroundColor Gray
 Write-Host "     Add-MpPreference -ExclusionProcess 'appname.exe'" -ForegroundColor Gray
 

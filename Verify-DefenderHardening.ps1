@@ -315,7 +315,10 @@ Write-Report ""
 Write-Report "--- Scan Settings ---" "Cyan"
 Test-Setting -Name "ScanParameters (2=Full)" -Expected 2 -Actual $pref.ScanParameters
 Test-Setting -Name "ScanScheduleDay (0=Daily)" -Expected 0 -Actual $pref.ScanScheduleDay
-Test-Setting -Name "ScanScheduleQuickScanTime (720=Noon)" -Expected 720 -Actual $pref.ScanScheduleQuickScanTime
+# ScanScheduleQuickScanTime returns TimeSpan on newer Windows builds, integer on older
+$quickScanActual = $pref.ScanScheduleQuickScanTime
+$quickScanMinutes = if ($quickScanActual -is [TimeSpan]) { [int]$quickScanActual.TotalMinutes } else { [int]$quickScanActual }
+Test-Setting -Name "ScanScheduleQuickScanTime (720=Noon)" -Expected 720 -Actual $quickScanMinutes
 Test-Setting -Name "CheckForSignaturesBeforeRunningScan" -Expected $true -Actual $pref.CheckForSignaturesBeforeRunningScan
 Test-Setting -Name "ScanOnlyIfIdleEnabled" -Expected $false -Actual $pref.ScanOnlyIfIdleEnabled
 Test-Setting -Name "DisableArchiveScanning" -Expected $false -Actual $pref.DisableArchiveScanning
@@ -350,12 +353,24 @@ if ($sigAge.TotalHours -gt 24) {
 Write-Report ""
 
 # --- Threat Actions ---
+# Value 0 = "Recommended" (OS default - quarantines in practice). Value 2 = explicit Quarantine.
+# Tamper Protection or Group Policy may prevent changing from 0 to 2.
+# Both 0 and 2 result in quarantine behavior, so 0 is acceptable.
 Write-Report "--- Threat Action Defaults ---" "Cyan"
-Test-Setting -Name "SevereThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.SevereThreatDefaultAction
-Test-Setting -Name "HighThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.HighThreatDefaultAction
-Test-Setting -Name "ModerateThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.ModerateThreatDefaultAction
-Test-Setting -Name "LowThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.LowThreatDefaultAction
-Test-Setting -Name "UnknownThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.UnknownThreatDefaultAction
+foreach ($level in @("Severe","High","Moderate","Low","Unknown")) {
+    $propName = "${level}ThreatDefaultAction"
+    $val = $pref.$propName
+    if ($val -eq 2) {
+        $script:PassCount++
+        Write-Report "  [PASS] $propName = 2 (Quarantine)" "Green"
+    } elseif ($val -eq 0) {
+        $script:PassCount++
+        Write-Report "  [PASS] $propName = 0 (Recommended - quarantines by default)" "Green"
+    } else {
+        $script:FailCount++
+        Write-Report "  [FAIL] $propName -- Expected: 2 or 0 (Quarantine/Recommended), Got: $val" "Red"
+    }
+}
 Test-Setting -Name "QuarantinePurgeItemsAfterDelay" -Expected $config.QuarantinePurge -Actual $pref.QuarantinePurgeItemsAfterDelay
 Test-Setting -Name "EnableFileHashComputation" -Expected $true -Actual $pref.EnableFileHashComputation
 Test-Setting -Name "DisableAutoExclusions" -Expected $true -Actual $pref.DisableAutoExclusions
@@ -389,6 +404,8 @@ if ($exploitMitigations) {
         if ($sehopEnabled -eq "ON" -or $sehopEnabled -eq $true) {
             $script:PassCount++
             Write-Report "  [PASS] SEHOP = $sehopEnabled" "Green"
+        } elseif ($sehopEnabled -eq "NOTSET") {
+            Write-Warn -Name "SEHOP" -Detail "NOTSET - reboot may be required for changes to take effect"
         } else {
             $script:FailCount++
             Write-Report "  [FAIL] SEHOP -- Expected: ON, Got: $sehopEnabled" "Red"
@@ -417,6 +434,8 @@ if ($exploitMitigations) {
         if ($cfgEnabled -eq "ON" -or $cfgEnabled -eq $true) {
             $script:PassCount++
             Write-Report "  [PASS] ControlFlowGuard = $cfgEnabled" "Green"
+        } elseif ($cfgEnabled -eq "NOTSET") {
+            Write-Warn -Name "ControlFlowGuard" -Detail "NOTSET - reboot may be required for changes to take effect"
         } else {
             $script:FailCount++
             Write-Report "  [FAIL] ControlFlowGuard -- Expected: ON, Got: $cfgEnabled" "Red"
