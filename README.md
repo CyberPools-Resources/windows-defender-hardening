@@ -55,31 +55,77 @@ The protection capabilities above are entirely free and built into every Windows
 
 ---
 
+## Protection Levels
+
+The script supports three protection levels via the `-ProtectionLevel` parameter:
+
+```powershell
+.\Harden-WindowsDefender.ps1 -ProtectionLevel Standard   # Daily use (default)
+.\Harden-WindowsDefender.ps1 -ProtectionLevel High        # Elevated risk environments
+.\Harden-WindowsDefender.ps1 -ProtectionLevel Max         # Active incident response ONLY
+```
+
+### What Changes Between Levels
+
+All three levels enable the same core protections (real-time, behavior monitoring, AMSI, network protection, exploit mitigations, and 16 ASR rules in Block mode). The differences are in how aggressively the system treats unknown files and how much system resources are dedicated to scanning:
+
+| Setting | Standard | High | Max |
+|---------|----------|------|-----|
+| Cloud Block Level | High (2) | High+ (4) | **Zero Tolerance (6)** |
+| Cloud Extended Timeout | +30 seconds | +50 seconds | +50 seconds |
+| Controlled Folder Access | Audit | Audit | **Block** |
+| ASR: Unknown executables (cloud reputation) | Audit | Block | Block |
+| ASR: PSExec/WMI | Audit | Audit | Audit |
+| Scan CPU limit | 50% | 60% | 70% |
+| Scan on battery | No | Yes | Yes |
+| Signature update interval | 3 hours | 1 hour | 1 hour |
+| Quarantine auto-purge | 90 days | Never | Never |
+
+> **WARNING: Max level is designed ONLY for use during an active security incident** while threats are being actively removed from the network. Zero Tolerance cloud blocking will block ALL unknown executables until Microsoft's cloud confirms they are safe. Controlled Folder Access in Block mode will prevent untrusted applications from writing to Documents, Pictures, and other protected folders. This WILL cause false positives and may block legitimate applications. After the incident is contained, step down to High or Standard.
+
+### Choosing a Level
+
+| Situation | Recommended Level |
+|-----------|-------------------|
+| Long-term daily use on production machines | **Standard** |
+| Post-incident environment, ongoing elevated risk | **High** |
+| Active incident, threats being removed from network | **Max** |
+
+### Stepping Down After an Incident
+
+After an incident is contained, re-run the script at a lower level. Settings are overwritten, not cumulative:
+
+```powershell
+.\Harden-WindowsDefender.ps1 -ProtectionLevel High       # Step down from Max
+.\Harden-WindowsDefender.ps1 -ProtectionLevel Standard    # Step down to daily baseline
+```
+
+---
+
 ## What This Script Configures
 
-The script enables and configures all of the capabilities listed above. Here is what changes when you run it:
+The script enables and configures all of the capabilities listed above. The following settings are applied at **all** protection levels:
 
 ### Core Protection
 - Real-time protection: **ON**
 - Behavior monitoring: **ON**
 - Script scanning (AMSI integration): **ON**
 - Downloaded file/attachment scanning (IOAV): **ON**
+- PUA Protection: **ON**
+- Block at First Seen: **ON**
 
 ### Cloud-Delivered Protection
 - Microsoft Active Protection Service (MAPS): **Advanced**
 - Automatic sample submission: **All samples**
-- Cloud block level: **Zero Tolerance** (Incident Mode) or **High** (Steady State)
-- Cloud extended timeout: **60 seconds** (holds unknown files until cloud verdict)
-- Block at First Seen: **ON**
+- Cloud block level and timeout: **Varies by protection level** (see table above)
 
 ### Attack Surface Reduction
-- 17 ASR rules set to **Block** mode
-- 1 ASR rule (PSExec/WMI) set to **Audit** mode (to avoid breaking SCCM/MECM)
+- 16 ASR rules set to **Block** mode at all levels
+- 2 ASR rules vary by level (see table above)
 - Covers: Office macro abuse, credential theft, obfuscated scripts, email-based executables, USB threats, ransomware behavior, WMI persistence, vulnerable driver abuse, and more
 
-### Network and Ransomware Protection
+### Network Protection
 - Network Protection: **ON** (blocks malicious domains/IPs across all processes)
-- Controlled Folder Access: **Block** (Incident Mode) or **Audit** (Steady State)
 - Traffic inspection: HTTP, TLS, DNS, FTP, SMTP, SSH, RDP
 - DNS sinkholing: **ON**
 
@@ -95,31 +141,13 @@ The script enables and configures all of the capabilities listed above. Here is 
 ### Scan and Signature Management
 - Daily full scan with noon quick scan
 - Archive, email, USB, and network drive scanning: **ON**
-- Signature update interval: **Every 1 hour**
+- Signature update interval, CPU limit, battery scan: **Varies by protection level**
 - Missed scan catch-up: **ON**
-- Scan during battery power: **ON**
 
 ### Threat Response
 - All threat levels (severe, high, moderate, low, unknown): **Quarantine**
-- Quarantine auto-purge: **Disabled** (preserves samples for investigation)
+- Quarantine auto-purge: **Varies by protection level** (90 days at Standard, never at High/Max)
 - File hash computation: **ON** (enables forensic analysis)
-
----
-
-## Incident Mode vs Steady State
-
-The script includes an `-IncidentMode` switch (enabled by default):
-
-| Setting | Incident Mode (default) | Steady State |
-|---------|------------------------|--------------|
-| Cloud Block Level | Zero Tolerance (blocks ALL unknown executables) | High (blocks high-confidence threats) |
-| Controlled Folder Access | Block (may require app whitelisting) | Audit (logs but does not block) |
-
-After an incident is contained, re-run with steady-state settings:
-
-```powershell
-.\Harden-WindowsDefender.ps1 -IncidentMode:$false
-```
 
 ---
 
@@ -151,7 +179,7 @@ On Home edition, ASR rules and Network Protection commands will execute without 
 ```powershell
 # Open PowerShell as Administrator
 Set-ExecutionPolicy Bypass -Scope Process -Force
-.\Harden-WindowsDefender.ps1
+.\Harden-WindowsDefender.ps1 -ProtectionLevel Standard
 ```
 
 ### GPO Startup Script
@@ -251,17 +279,20 @@ A companion script (`Verify-DefenderHardening.ps1`) validates that every setting
 Reads back every setting using `Get-MpPreference`, `Get-MpComputerStatus`, and `Get-ProcessMitigation` and compares against expected values. Outputs a pass/fail report.
 
 ```powershell
-# Verify Incident Mode settings (default)
+# Verify Standard level settings (default)
 .\Verify-DefenderHardening.ps1
 
-# Verify Steady State settings
-.\Verify-DefenderHardening.ps1 -IncidentMode:$false
+# Verify High level settings
+.\Verify-DefenderHardening.ps1 -ProtectionLevel High
+
+# Verify Max level settings
+.\Verify-DefenderHardening.ps1 -ProtectionLevel Max
 
 # Configuration check only (skip functional tests)
 .\Verify-DefenderHardening.ps1 -SkipFunctionalTests
 
 # Save report to a specific path
-.\Verify-DefenderHardening.ps1 -ReportPath "C:\Reports\defender-report.txt"
+.\Verify-DefenderHardening.ps1 -ProtectionLevel High -ReportPath "C:\Reports\defender-report.txt"
 ```
 
 ### Functional Tests

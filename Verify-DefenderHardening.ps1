@@ -10,9 +10,10 @@
 
     Outputs a structured pass/fail report to both the console and a text file.
 
-.PARAMETER IncidentMode
-    Set to $true to validate against Incident Mode expected values (ZeroTolerance,
-    CFA Block). Set to $false for Steady State expected values.
+.PARAMETER ProtectionLevel
+    The protection level to validate against. Must match the level used when
+    running Harden-WindowsDefender.ps1. Valid values: Standard, High, Max.
+    Defaults to Standard.
 
 .PARAMETER SkipFunctionalTests
     Skip functional tests and only verify configuration settings.
@@ -21,7 +22,7 @@
     Path for the output report file. Defaults to .\Defender-Verification-Report.txt
 
 .NOTES
-    Version: 1.0
+    Version: 2.0
     Date:    February 2026
     License: MIT
 
@@ -34,7 +35,8 @@
 #>
 
 param(
-    [switch]$IncidentMode = $true,
+    [ValidateSet("Standard", "High", "Max")]
+    [string]$ProtectionLevel = "Standard",
     [switch]$SkipFunctionalTests,
     [string]$ReportPath = ".\Defender-Verification-Report.txt"
 )
@@ -109,8 +111,46 @@ function Write-Warn {
 # HEADER
 # -------------------------------------------------------------------
 
+# -------------------------------------------------------------------
+# PROTECTION LEVEL EXPECTED VALUES
+# -------------------------------------------------------------------
+
+$levelConfig = @{
+    Standard = @{
+        CloudBlockLevel       = 2       # High
+        CloudExtendedTimeout  = 30
+        CFA                   = 2       # Audit
+        ASRCloudReputation    = 2       # Audit
+        ScanCPULimit          = 50
+        BatteryScan           = $false
+        SignatureInterval     = 3
+        QuarantinePurge       = 90
+    }
+    High = @{
+        CloudBlockLevel       = 4       # High+
+        CloudExtendedTimeout  = 50
+        CFA                   = 2       # Audit
+        ASRCloudReputation    = 1       # Block
+        ScanCPULimit          = 60
+        BatteryScan           = $true
+        SignatureInterval     = 1
+        QuarantinePurge       = 0
+    }
+    Max = @{
+        CloudBlockLevel       = 6       # ZeroTolerance
+        CloudExtendedTimeout  = 50
+        CFA                   = 1       # Block
+        ASRCloudReputation    = 1       # Block
+        ScanCPULimit          = 70
+        BatteryScan           = $true
+        SignatureInterval     = 1
+        QuarantinePurge       = 0
+    }
+}
+
+$config = $levelConfig[$ProtectionLevel]
+
 $timestamp = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
-$modeName  = if ($IncidentMode) { "INCIDENT MODE" } else { "STEADY STATE" }
 
 Write-Report "============================================================"
 Write-Report " Windows Defender Hardening Verification Report"
@@ -121,7 +161,7 @@ Write-Report "Computer:     $env:COMPUTERNAME"
 Write-Report "Username:     $env:USERNAME"
 Write-Report "OS:           $(Get-CimInstance Win32_OperatingSystem | Select-Object -ExpandProperty Caption)"
 Write-Report "OS Build:     $([System.Environment]::OSVersion.Version)"
-Write-Report "Validating:   $modeName"
+Write-Report "Validating:   $($ProtectionLevel.ToUpper()) level"
 Write-Report ""
 
 # -------------------------------------------------------------------
@@ -179,13 +219,11 @@ Write-Report ""
 
 # --- Cloud-Delivered Protection ---
 Write-Report "--- Cloud-Delivered Protection ---" "Cyan"
-$expectedCloudBlock = if ($IncidentMode) { 6 } else { 2 }
-$cloudBlockName     = if ($IncidentMode) { "ZeroTolerance (6)" } else { "High (2)" }
 
 Test-Setting -Name "MAPSReporting" -Expected 2 -Actual $pref.MAPSReporting
 Test-Setting -Name "SubmitSamplesConsent" -Expected 3 -Actual $pref.SubmitSamplesConsent
-Test-Setting -Name "CloudBlockLevel" -Expected $expectedCloudBlock -Actual $pref.CloudBlockLevel
-Test-Setting -Name "CloudExtendedTimeout" -Expected 50 -Actual $pref.CloudExtendedTimeout
+Test-Setting -Name "CloudBlockLevel" -Expected $config.CloudBlockLevel -Actual $pref.CloudBlockLevel
+Test-Setting -Name "CloudExtendedTimeout" -Expected $config.CloudExtendedTimeout -Actual $pref.CloudExtendedTimeout
 
 # Cloud connectivity check
 if ($status.PSObject.Properties.Name -contains "IsVirtualMachine") {
@@ -210,9 +248,7 @@ Write-Report ""
 
 # --- Controlled Folder Access ---
 Write-Report "--- Controlled Folder Access ---" "Cyan"
-$expectedCFA = if ($IncidentMode) { 1 } else { 2 }
-$cfaName     = if ($IncidentMode) { "Enabled/Block (1)" } else { "AuditMode (2)" }
-Test-Setting -Name "EnableControlledFolderAccess" -Expected $expectedCFA -Actual $pref.EnableControlledFolderAccess
+Test-Setting -Name "EnableControlledFolderAccess" -Expected $config.CFA -Actual $pref.EnableControlledFolderAccess
 Write-Report ""
 
 # --- Attack Surface Reduction Rules ---
@@ -224,7 +260,7 @@ $expectedASR = @{
     "d4f940ab-401b-4efc-aadc-ad5f3c50688a" = @{ Action = 1; Name = "Block Office child processes" }
     "9e6c4e1f-7d60-472f-ba1a-a39ef669e4b2" = @{ Action = 1; Name = "Block credential theft from LSASS" }
     "be9ba2d9-53ea-4cdc-84e5-9b1eeee46550" = @{ Action = 1; Name = "Block executables from email" }
-    "01443614-cd74-433a-b99e-2ecdc07bfc25" = @{ Action = 1; Name = "Block unknown executables (cloud)" }
+    "01443614-cd74-433a-b99e-2ecdc07bfc25" = @{ Action = $config.ASRCloudReputation; Name = "Block unknown executables (cloud)" }
     "5beb7efe-fd9a-4556-801d-275e5ffc04cc" = @{ Action = 1; Name = "Block obfuscated scripts" }
     "d3e037e1-3eb8-44c8-a917-57927947596d" = @{ Action = 1; Name = "Block JS/VBS launching executables" }
     "3b576869-a4ec-4529-8536-b80a7769e899" = @{ Action = 1; Name = "Block Office creating executables" }
@@ -287,15 +323,15 @@ Test-Setting -Name "DisableEmailScanning" -Expected $false -Actual $pref.Disable
 Test-Setting -Name "DisableRemovableDriveScanning" -Expected $false -Actual $pref.DisableRemovableDriveScanning
 Test-Setting -Name "DisableScanningMappedNetworkDrivesForFullScan" -Expected $false -Actual $pref.DisableScanningMappedNetworkDrivesForFullScan
 Test-Setting -Name "DisableScanningNetworkFiles" -Expected $false -Actual $pref.DisableScanningNetworkFiles
-Test-Setting -Name "ScanAvgCPULoadFactor" -Expected 70 -Actual $pref.ScanAvgCPULoadFactor
+Test-Setting -Name "ScanAvgCPULoadFactor" -Expected $config.ScanCPULimit -Actual $pref.ScanAvgCPULoadFactor
 Test-Setting -Name "DisableCatchupFullScan" -Expected $false -Actual $pref.DisableCatchupFullScan
 Test-Setting -Name "DisableCatchupQuickScan" -Expected $false -Actual $pref.DisableCatchupQuickScan
-Test-Setting -Name "EnableFullScanOnBatteryPower" -Expected $true -Actual $pref.EnableFullScanOnBatteryPower
+Test-Setting -Name "EnableFullScanOnBatteryPower" -Expected $config.BatteryScan -Actual $pref.EnableFullScanOnBatteryPower
 Write-Report ""
 
 # --- Signature Updates ---
 Write-Report "--- Signature Update Settings ---" "Cyan"
-Test-Setting -Name "SignatureUpdateInterval (hours)" -Expected 1 -Actual $pref.SignatureUpdateInterval
+Test-Setting -Name "SignatureUpdateInterval (hours)" -Expected $config.SignatureInterval -Actual $pref.SignatureUpdateInterval
 Test-Setting -Name "SignatureUpdateCatchupInterval" -Expected 1 -Actual $pref.SignatureUpdateCatchupInterval
 Test-Setting -Name "MeteredConnectionUpdates" -Expected $true -Actual $pref.MeteredConnectionUpdates
 Test-Setting -Name "SignatureDisableUpdateOnStartupWithoutEngine" -Expected $false -Actual $pref.SignatureDisableUpdateOnStartupWithoutEngine
@@ -320,7 +356,7 @@ Test-Setting -Name "HighThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual 
 Test-Setting -Name "ModerateThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.ModerateThreatDefaultAction
 Test-Setting -Name "LowThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.LowThreatDefaultAction
 Test-Setting -Name "UnknownThreatDefaultAction (2=Quarantine)" -Expected 2 -Actual $pref.UnknownThreatDefaultAction
-Test-Setting -Name "QuarantinePurgeItemsAfterDelay (0=Never)" -Expected 0 -Actual $pref.QuarantinePurgeItemsAfterDelay
+Test-Setting -Name "QuarantinePurgeItemsAfterDelay" -Expected $config.QuarantinePurge -Actual $pref.QuarantinePurgeItemsAfterDelay
 Test-Setting -Name "EnableFileHashComputation" -Expected $true -Actual $pref.EnableFileHashComputation
 Test-Setting -Name "DisableAutoExclusions" -Expected $true -Actual $pref.DisableAutoExclusions
 Write-Report ""
@@ -607,8 +643,8 @@ if (-not $SkipFunctionalTests) {
     $documentsPath = [Environment]::GetFolderPath("MyDocuments")
     $cfaTestFile   = Join-Path $documentsPath "defender-cfa-test-safe-to-delete.txt"
 
-    if ($pref.EnableControlledFolderAccess -eq 1) {
-        Write-Report "  CFA is in Block mode. Attempting to write test file to Documents..." "Gray"
+    if ($config.CFA -eq 1) {
+        Write-Report "  CFA is in Block mode (Max level). Attempting to write test file to Documents..." "Gray"
 
         try {
             [System.IO.File]::WriteAllText($cfaTestFile, "CFA test file - safe to delete")
@@ -636,10 +672,10 @@ if (-not $SkipFunctionalTests) {
                 Write-Report "  [INFO] Found $($cfaEvents.Count) CFA event(s) in last 5 min" "Gray"
             }
         } catch {}
-    } elseif ($pref.EnableControlledFolderAccess -eq 2) {
-        Write-Report "  CFA is in Audit mode (Steady State). Write test skipped." "Gray"
+    } elseif ($config.CFA -eq 2) {
+        Write-Report "  CFA is in Audit mode (Standard/High level). Write test skipped." "Gray"
         Write-Report "  CFA will log but not block writes. Check Event ID 1124 for audit events." "Gray"
-        Write-Skip -Name "Controlled Folder Access Block Test" -Reason "CFA is in Audit mode (expected for Steady State)"
+        Write-Skip -Name "Controlled Folder Access Block Test" -Reason "CFA is in Audit mode (expected for Standard/High)"
     } else {
         Test-Functional -Name "Controlled Folder Access" -Passed $false -Detail "CFA is disabled (value: $($pref.EnableControlledFolderAccess))"
     }
