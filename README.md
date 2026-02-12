@@ -208,8 +208,19 @@ Invoke-Command -ComputerName $targets -FilePath ".\Harden-WindowsDefender.ps1" -
 ### Remote Pull (IEX)
 
 ```powershell
+# Harden at Standard level (default)
 Set-ExecutionPolicy Bypass -Scope Process -Force
 IEX (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/CyberPools-Resources/windows-defender-hardening/main/Harden-WindowsDefender.ps1' -UseBasicParsing).Content
+
+# Harden at a specific level
+Set-ExecutionPolicy Bypass -Scope Process -Force
+$script = (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/CyberPools-Resources/windows-defender-hardening/main/Harden-WindowsDefender.ps1' -UseBasicParsing).Content
+Invoke-Expression "& { $script } -ProtectionLevel Max"
+
+# Pull and run the verification script
+Set-ExecutionPolicy Bypass -Scope Process -Force
+$script = (Invoke-WebRequest -Uri 'https://raw.githubusercontent.com/CyberPools-Resources/windows-defender-hardening/main/Verify-DefenderHardening.ps1' -UseBasicParsing).Content
+Invoke-Expression "& { $script } -ProtectionLevel Max"
 ```
 
 ### PDQ Deploy
