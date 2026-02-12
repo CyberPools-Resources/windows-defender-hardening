@@ -4,6 +4,12 @@ A PowerShell script that configures the native Windows Defender antimalware engi
 
 This script uses only built-in Windows components (`Set-MpPreference`, `Set-ProcessMitigation`, `Update-MpSignature`) to significantly improve endpoint security posture.
 
+## Inspiration
+
+This project was inspired by [ConfigureDefender](https://github.com/AndyFul/ConfigureDefender), an excellent portable GUI application by AndyFul that configures Windows Defender with four protection levels (Default, High, Interactive, MAX). ConfigureDefender is a portable application that requires no installation -- download and run `ConfigureDefender.exe` on any Windows 32-bit or 64-bit system.
+
+This project takes the same approach and puts it into a PowerShell script that can be deployed at scale across an organization via Group Policy, PowerShell Remoting, Intune, PDQ Deploy, SCCM, or USB -- without requiring someone to sit at each machine.
+
 ## Why This Exists
 
 Most organizations have Windows Defender running on every endpoint but are only using a fraction of its capabilities. Out of the box, many of its most powerful features are either disabled by default or set to passive/audit mode.
