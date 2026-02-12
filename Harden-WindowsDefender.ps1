@@ -466,7 +466,7 @@ try {
 }
 
 try {
-    Set-ProcessMitigation -System -Enable TerminateOnHeapError
+    Set-ProcessMitigation -System -Enable TerminateOnError
     Write-Host "  - Heap integrity validation: ENABLED" -ForegroundColor White
 } catch {
     Write-Host "  - Heap integrity: Could not set ($($_.Exception.Message))" -ForegroundColor Yellow
